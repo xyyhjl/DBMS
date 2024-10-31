@@ -31,7 +31,16 @@ void DiskManager::write_page(int fd, page_id_t page_no, const char *offset, int 
     // 1.lseek()定位到文件头，通过(fd,page_no)可以定位指定页面及其在磁盘文件中的偏移量
     // 2.调用write()函数
     // 注意write返回值与num_bytes不等时 throw InternalError("DiskManager::write_page Error");
+    
+    // 计算页面在文件中的偏移量
+    off_t offset_in_file = page_no * PAGE_SIZE;
+    lseek(fd, offset_in_file, SEEK_SET);
 
+    // 写入数据
+    ssize_t bytes_written = write(fd, offset, num_bytes);
+    if (bytes_written != num_bytes) {
+        throw InternalError("DiskManager::write_page Error");
+    }
 }
 
 /**
@@ -46,7 +55,13 @@ void DiskManager::read_page(int fd, page_id_t page_no, char *offset, int num_byt
     // 1.lseek()定位到文件头，通过(fd,page_no)可以定位指定页面及其在磁盘文件中的偏移量
     // 2.调用read()函数
     // 注意read返回值与num_bytes不等时，throw InternalError("DiskManager::read_page Error");
+    off_t offset_in_file = page_no * PAGE_SIZE;
+    lseek(fd, offset_in_file, SEEK_SET);
 
+    ssize_t bytes_read = read(fd, offset, num_bytes);
+    if (bytes_read != num_bytes) {
+        throw InternalError("DiskManager::write_page Error");
+    }
 }
 
 /**
@@ -102,6 +117,19 @@ void DiskManager::create_file(const std::string &path) {
     // Todo:
     // 调用open()函数，使用O_CREAT模式
     // 注意不能重复创建相同文件
+
+    // 使用 O_CREAT | O_EXCL 标志，确保文件不存在时创建
+    int fd = open(path.c_str(), O_CREAT | O_EXCL,0744); 
+    if (fd == -1) {
+        // 如果 open 失败，检查是因为文件已存在还是其他错误
+        if (errno == EEXIST) {
+            throw FileExistsError("DiskManager::create_file Error: File already exists: " + path);
+        } else {
+            throw std::runtime_error("DiskManager::create_file Error in open: " + std::string(strerror(errno)));
+        }
+    }
+    // 成功创建后，关闭文件描述符
+    close(fd);
 }
 
 /**
@@ -113,6 +141,20 @@ void DiskManager::destroy_file(const std::string &path) {
     // 调用unlink()函数
     // 注意不能删除未关闭的文件
     
+    // 检查文件是否已经打开
+    if (path2fd_.find(path) != path2fd_.end()) {
+        throw std::runtime_error("DiskManager::destroy_file Error: File is currently open: " + path);
+    }
+
+    // 使用 unlink() 函数删除文件
+    if (unlink(path.c_str()) == -1) {
+        // 删除文件失败，抛出异常并返回错误信息
+        if (errno == ENOENT) {
+            throw FileNotFoundError("DiskManager::destroy_file Error: Unable to delete file: " + std::string(strerror(errno)));
+        } else {
+            throw std::runtime_error("DiskManager::destroy_file Error: Unable to delete file: " + std::string(strerror(errno)));
+        }
+    }
 }
 
 
@@ -125,7 +167,30 @@ int DiskManager::open_file(const std::string &path) {
     // Todo:
     // 调用open()函数，使用O_RDWR模式
     // 注意不能重复打开相同文件，并且需要更新文件打开列表
+     
+     // 检查文件是否已经在打开列表中
+    if (path2fd_.find(path) != path2fd_.end()) {
+        throw std::runtime_error("DiskManager::open_file Error: File is already opened: " + path);
+    }
 
+    // 使用 O_RDWR 模式打开文件
+    int fd = open(path.c_str(), O_RDWR);
+    
+    if (fd == -1) {
+        // 打开文件失败，抛出异常并显示错误信息
+        if (errno == ENOENT) {
+            throw FileNotFoundError("DiskManager::open_file Error: Unable to open file: " + std::string(strerror(errno)));
+        } else {
+            throw std::runtime_error("DiskManager::open_file Error: Unable to open file: " + std::string(strerror(errno)));
+        }
+    }
+
+    // 成功打开文件，更新打开文件列表
+    path2fd_[path] = fd;
+    fd2path_[fd] = path;
+
+    // 返回文件描述符
+    return fd;
 }
 
 /**
@@ -136,9 +201,21 @@ void DiskManager::close_file(int fd) {
     // Todo:
     // 调用close()函数
     // 注意不能关闭未打开的文件，并且需要更新文件打开列表
+    // 检查文件描述符是否存在于打开的文件列表中
+    if (fd2path_.find(fd) == fd2path_.end()) {
+        throw std::runtime_error("DiskManager::close_file Error: File descriptor not found: " + std::to_string(fd));
+    }
 
+    // 调用close()函数关闭文件
+    if (close(fd) == -1) {
+        throw std::runtime_error("DiskManager::close_file Error: Unable to close file: " + std::string(strerror(errno)));
+    }
+
+    // 从打开的文件列表中移除记录
+    std::string path = fd2path_[fd]; // 找到对应的文件路径
+    fd2path_.erase(fd);              // 删除 fd2path_ 中的条目
+    path2fd_.erase(path);            // 删除 path2fd_ 中的条目
 }
-
 
 /**
  * @description: 获得文件的大小

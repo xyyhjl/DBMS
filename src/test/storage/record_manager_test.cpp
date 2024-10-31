@@ -112,6 +112,7 @@ TEST(RecordManagerTest, SimpleTest) {
         rm_manager->close_file(file_handle.get());
         rm_manager->destroy_file(filename);
     }
+
     // test pages
     rm_manager->create_file(filename, record_size);
     auto file_handle = rm_manager->open_file(filename);
@@ -152,6 +153,7 @@ TEST(RecordManagerTest, SimpleTest) {
                 //                std::cout << "delete " << rid << '\n';
             }
         }
+
         // Randomly re-open file
         if (round % 50 == 0) {
             rm_manager->close_file(file_handle.get());

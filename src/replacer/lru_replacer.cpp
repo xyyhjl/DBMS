@@ -28,6 +28,19 @@ bool LRUReplacer::victim(frame_id_t* frame_id) {
     //  利用lru_replacer中的LRUlist_,LRUHash_实现LRU策略
     //  选择合适的frame指定为淘汰页面,赋值给*frame_id
 
+     // 检查LRUlist_是否为空
+    if (LRUlist_.empty()) {
+        *frame_id = -1;  // 表示没有可淘汰的frame
+        return false;
+    }
+
+    // 选择最久未使用的frame，即LRUlist_的末尾
+    *frame_id = LRUlist_.back();
+
+    // 从LRUlist_和LRUHash_中移除该frame
+    LRUlist_.pop_back();  // 从list中删除该frame
+    LRUhash_.erase(*frame_id);  // 从哈希表中移除
+
     return true;
 }
 
@@ -40,6 +53,13 @@ void LRUReplacer::pin(frame_id_t frame_id) {
     // Todo:
     // 固定指定id的frame
     // 在数据结构中移除该frame
+    
+    // 检查指定的frame是否存在于LRU list中
+    if (LRUhash_.find(frame_id) != LRUhash_.end()) {
+        // 如果frame存在，移除它
+        LRUlist_.erase(LRUhash_.find(frame_id)->second);  // 从LRUlist_中移除
+        LRUhash_.erase(LRUhash_.find(frame_id));          // 从LRUHash_中移除
+    }
 }
 
 /**
@@ -50,6 +70,14 @@ void LRUReplacer::unpin(frame_id_t frame_id) {
     // Todo:
     //  支持并发锁
     //  选择一个frame取消固定
+    std::scoped_lock lock{latch_};
+    if (LRUhash_.find(frame_id) == LRUhash_.end()) {
+        // 如果该frame不在LRU list中，将其插入到LRU list的头部
+        LRUlist_.push_front(frame_id);
+
+        // 更新哈希表，记录该frame在链表中的位置
+        LRUhash_[frame_id] = LRUlist_.begin();
+    }
 }
 
 /**

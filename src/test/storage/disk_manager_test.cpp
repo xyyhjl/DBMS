@@ -93,7 +93,6 @@ TEST_F(DiskManagerTest, FileOperation) {
             fd2name[new_fd] = filename;
         }
     }
-
     // 关闭&删除文件
     for (auto &entry : fd2name) {
         int fd = entry.first;
